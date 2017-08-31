@@ -9,6 +9,7 @@
 #include "Eigen-3.3/Eigen/QR"
 #include "json.hpp"
 #include "spline.h"
+#include "car.h"
 
 using namespace std;
 
@@ -160,11 +161,67 @@ vector<double> getXY(double s, double d, vector<double> maps_s, vector<double> m
 
 }
 
+
 int lane = 1;
 //double ref_val = 49.5;
 double ref_val =0;
 
+bool isLaneAvailable(vector<Car> cars, double prev_size,double car_s, int new_lane)
+{
+    bool available  = true;
 
+    // make sure new_lane is a real lane
+    if (new_lane < 0) return false;
+    if (new_lane > 2) return false;
+
+    for (int i=0;i<cars.size();i++)
+    {
+         Car car = cars[i];
+         float d = car.d;
+         if (d<(2+4*new_lane+2)&& d>(2+4*new_lane-2))
+         {
+              cout << "car " << i << " " << car.id << " lane " << new_lane << endl;
+              double vx = car.vx;
+              double vy = car.vy;
+              double check_speed = sqrt(vx*vx+vy*vy);
+              double check_car_s = car.s;
+              check_car_s+=((double)prev_size*0.02*check_speed);
+              //if ((check_car_s>car_s) && ((check_car_s-car_s)<30))
+              cout << "check_car_s " << check_car_s  << " car_s  " << car_s<< endl;
+              if (check_car_s < car_s+30 &&  check_car_s > car_s-30)
+              {
+                  available=false;
+              }
+
+          }
+     }
+    return available;
+
+}
+
+bool isCarInFront(vector<Car> cars,double prev_size,double car_s)
+{
+    bool too_close = false;
+    for (int i=0;i<cars.size();i++)
+    {
+         Car car = cars[i];
+         float d = car.d;
+         if (d<(2+4*lane+2)&& d>(2+4*lane-2))
+         {
+              double vx = car.vx;
+              double vy = car.vy;
+              double check_speed = sqrt(vx*vx+vy*vy);
+              double check_car_s = car.s;
+              check_car_s+=((double)prev_size*0.02*check_speed);
+              if ((check_car_s>car_s) && ((check_car_s-car_s)<30))
+              {
+                  too_close=true;
+              }
+
+          }
+     }
+    return too_close;
+}
 
 int main() {
   uWS::Hub h;
@@ -240,6 +297,21 @@ int main() {
           	// Sensor Fusion Data, a list of all other cars on the same side of the road.
           	auto sensor_fusion = j[1]["sensor_fusion"];
 
+                // create Car structure
+                vector<Car> cars;
+                for (int i=0;i<sensor_fusion.size();i++)
+                { 
+                    Car theCar = Car(
+                       sensor_fusion[i][0],
+                       sensor_fusion[i][1],
+                       sensor_fusion[i][2],
+                       sensor_fusion[i][3],
+                       sensor_fusion[i][4],
+                       sensor_fusion[i][5],
+                       sensor_fusion[i][6]);
+                    cars.push_back(theCar);
+                }
+
                 int prev_size = previous_path_x.size();
 
                 if (prev_size>0)
@@ -247,24 +319,24 @@ int main() {
 
                 bool too_close = false;
 
-                for (int i=0;i<sensor_fusion.size();i++)
+                too_close = isCarInFront(cars,prev_size,car_s);
+                if (too_close)
                 {
-                    float d = sensor_fusion[i][6];
-                    if (d<(2+4*lane+2)&& d>(2+4*lane-2))
-                    {
-                          double vx = sensor_fusion[i][3];
-                          double vy = sensor_fusion[i][4];
-                          double check_speed = sqrt(vx*vx+vy*vy);
-                          double check_car_s = sensor_fusion[i][5];
-                          check_car_s+=((double)prev_size*0.02*check_speed);
-                          if ((check_car_s>car_s) && ((check_car_s-car_s)<30))
-                          {
-                             too_close=true;
-if (lane>0) lane=0;
-                          }
-
-                    }
+                     // try to go left first
+                     if (isLaneAvailable(cars, prev_size,car_s, lane-1))
+                     {
+                        lane=lane-1; 
+                        std::cout << "go left" << std::endl;
+                     }
+                     else if (isLaneAvailable(cars, prev_size,car_s, lane+1))
+                     {
+                        lane=lane+1;
+                        std::cout << "go right" << std::endl;
+                     }
                 }
+
+
+
           	json msgJson;
 
           	vector<double> next_x_vals;
