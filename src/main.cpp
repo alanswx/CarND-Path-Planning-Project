@@ -1,3 +1,12 @@
+/*
+ 
+ CarND-Path-Planning-Project
+ 
+ Student: Alan Steremberg
+ 8/30/2017
+ 
+ */
+
 #include <fstream>
 #include <math.h>
 #include <uWS/uWS.h>
@@ -161,11 +170,17 @@ vector<double> getXY(double s, double d, vector<double> maps_s, vector<double> m
 
 }
 
-
+/* starting lane is the middle one, == 1 */
 int lane = 1;
-//double ref_val = 49.5;
+/* we start from a 0 speed so we don't jerk off the line */
 double ref_val =0;
 
+/*
+ this function takes the cars vector, the previous path, our car_s, and the lane we want to check on.
+ It returns whether there is a gap in the lane (using the proper d ) parallel to our current position (s)
+ 
+ true -- lane available to change into
+*/
 bool isLaneAvailable(vector<Car> cars, double prev_size,double car_s, int new_lane)
 {
     bool available  = true;
@@ -180,14 +195,13 @@ bool isLaneAvailable(vector<Car> cars, double prev_size,double car_s, int new_la
          float d = car.d;
          if (d<(2+4*new_lane+2)&& d>(2+4*new_lane-2))
          {
-              cout << "car " << i << " " << car.id << " lane " << new_lane << endl;
+              //cout << "car " << i << " " << car.id << " lane " << new_lane << endl;
               double vx = car.vx;
               double vy = car.vy;
               double check_speed = sqrt(vx*vx+vy*vy);
               double check_car_s = car.s;
               check_car_s+=((double)prev_size*0.02*check_speed);
-              //if ((check_car_s>car_s) && ((check_car_s-car_s)<30))
-              cout << "check_car_s " << check_car_s  << " car_s  " << car_s<< endl;
+              //cout << "check_car_s " << check_car_s  << " car_s  " << car_s<< endl;
               if (check_car_s < car_s+30 &&  check_car_s > car_s-30)
               {
                   available=false;
@@ -199,6 +213,9 @@ bool isLaneAvailable(vector<Car> cars, double prev_size,double car_s, int new_la
 
 }
 
+/*
+    This function returns true if there is a car in front of us below the allowed gap.
+*/
 bool isCarInFront(vector<Car> cars,double prev_size,double car_s)
 {
     bool too_close = false;
@@ -297,43 +314,53 @@ int main() {
           	// Sensor Fusion Data, a list of all other cars on the same side of the road.
           	auto sensor_fusion = j[1]["sensor_fusion"];
 
-                // create Car structure
-                vector<Car> cars;
-                for (int i=0;i<sensor_fusion.size();i++)
-                { 
-                    Car theCar = Car(
-                       sensor_fusion[i][0],
-                       sensor_fusion[i][1],
-                       sensor_fusion[i][2],
-                       sensor_fusion[i][3],
-                       sensor_fusion[i][4],
-                       sensor_fusion[i][5],
-                       sensor_fusion[i][6]);
-                    cars.push_back(theCar);
-                }
+            // create Car structure
+            // the Car structure makes it easier to pass a vector of cars around instead of the JSON objects
+            vector<Car> cars;
+            for (int i=0;i<sensor_fusion.size();i++)
+            { 
+                Car theCar = Car(
+                   sensor_fusion[i][0],
+                   sensor_fusion[i][1],
+                   sensor_fusion[i][2],
+                   sensor_fusion[i][3],
+                   sensor_fusion[i][4],
+                   sensor_fusion[i][5],
+                   sensor_fusion[i][6]);
+                cars.push_back(theCar);
+            }
 
-                int prev_size = previous_path_x.size();
+            int prev_size = previous_path_x.size();
 
-                if (prev_size>0)
-                  car_s = end_path_s;
+            if (prev_size>0)
+              car_s = end_path_s;
 
-                bool too_close = false;
+            bool too_close = false;
 
-                too_close = isCarInFront(cars,prev_size,car_s);
-                if (too_close)
-                {
-                     // try to go left first
-                     if (isLaneAvailable(cars, prev_size,car_s, lane-1))
-                     {
-                        lane=lane-1; 
-                        std::cout << "go left" << std::endl;
-                     }
-                     else if (isLaneAvailable(cars, prev_size,car_s, lane+1))
-                     {
-                        lane=lane+1;
-                        std::cout << "go right" << std::endl;
-                     }
-                }
+            /*
+            # Control logic
+            # 
+            #  1 - check to see if we are too close, and set the flag so we can slow down
+            #  2 - if we are too close, then first try to switch into the lane left of us - 
+            #      we use a helper to see if the lane exists, and has a gap that is big enough
+            #  3 - if the left lane doesn't work, try the next one right
+            */
+         
+            too_close = isCarInFront(cars,prev_size,car_s);
+            if (too_close)
+            {
+                 // try to go left first
+                 if (isLaneAvailable(cars, prev_size,car_s, lane-1))
+                 {
+                    lane=lane-1; 
+                    std::cout << "go left" << std::endl;
+                 }
+                 else if (isLaneAvailable(cars, prev_size,car_s, lane+1))
+                 {
+                    lane=lane+1;
+                    std::cout << "go right" << std::endl;
+                 }
+            }
 
 
 
@@ -343,84 +370,87 @@ int main() {
           	vector<double> next_y_vals;
 
 
-// from video - lane
+            // Code from the class tutorial video
 
-vector<double> ptsx;
-vector<double> ptsy;
+            vector<double> ptsx;
+            vector<double> ptsy;
 
-double ref_x = car_x;
-double ref_y = car_y;
-double ref_yaw = deg2rad(car_yaw);
+            double ref_x = car_x;
+            double ref_y = car_y;
+            double ref_yaw = deg2rad(car_yaw);
 
-// if previous size is almost empty, use the car as starting reference
-if (prev_size<2)
-{
-   // the two points that make the path tangent to the car
-  double prev_car_x = car_x - cos(car_yaw);
-  double prev_car_y = car_y - sin(car_yaw);
-  ptsx.push_back(prev_car_x);
-  ptsx.push_back(car_x);
+            // if previous size is almost empty, use the car as starting reference
+            if (prev_size<2)
+            {
+               // the two points that make the path tangent to the car
+              double prev_car_x = car_x - cos(car_yaw);
+              double prev_car_y = car_y - sin(car_yaw);
+              ptsx.push_back(prev_car_x);
+              ptsx.push_back(car_x);
 
-  ptsy.push_back(prev_car_y);
-  ptsy.push_back(car_y);
-}
-else
-{
-    ref_x = previous_path_x[prev_size-1];
-    ref_y = previous_path_y[prev_size-1];
+              ptsy.push_back(prev_car_y);
+              ptsy.push_back(car_y);
+            }
+            else
+            {
+                ref_x = previous_path_x[prev_size-1];
+                ref_y = previous_path_y[prev_size-1];
 
-    double ref_x_prev = previous_path_x[prev_size-2];
-    double ref_y_prev = previous_path_y[prev_size-2];
-    ref_yaw = atan2(ref_y-ref_y_prev,ref_x-ref_x_prev);
+                double ref_x_prev = previous_path_x[prev_size-2];
+                double ref_y_prev = previous_path_y[prev_size-2];
+                ref_yaw = atan2(ref_y-ref_y_prev,ref_x-ref_x_prev);
 
-  ptsx.push_back(ref_x_prev);
-  ptsx.push_back(ref_x);
+              ptsx.push_back(ref_x_prev);
+              ptsx.push_back(ref_x);
 
-  ptsy.push_back(ref_y_prev);
-  ptsy.push_back(ref_y);
-    
-}
+              ptsy.push_back(ref_y_prev);
+              ptsy.push_back(ref_y);
+                
+            }
 
-  vector<double> next_mp0= getXY(car_s+30,(2+4*lane),map_waypoints_s, map_waypoints_x, map_waypoints_y);
-  vector<double> next_mp1= getXY(car_s+60,(2+4*lane),map_waypoints_s, map_waypoints_x, map_waypoints_y);
-  vector<double> next_mp2= getXY(car_s+90,(2+4*lane),map_waypoints_s, map_waypoints_x, map_waypoints_y);
+              vector<double> next_mp0= getXY(car_s+30,(2+4*lane),map_waypoints_s, map_waypoints_x, map_waypoints_y);
+              vector<double> next_mp1= getXY(car_s+60,(2+4*lane),map_waypoints_s, map_waypoints_x, map_waypoints_y);
+              vector<double> next_mp2= getXY(car_s+90,(2+4*lane),map_waypoints_s, map_waypoints_x, map_waypoints_y);
 
-  ptsx.push_back(next_mp0[0]);
-  ptsx.push_back(next_mp1[0]);
-  ptsx.push_back(next_mp2[0]);
+              ptsx.push_back(next_mp0[0]);
+              ptsx.push_back(next_mp1[0]);
+              ptsx.push_back(next_mp2[0]);
 
-  ptsy.push_back(next_mp0[1]);
-  ptsy.push_back(next_mp1[1]);
-  ptsy.push_back(next_mp2[1]);
+              ptsy.push_back(next_mp0[1]);
+              ptsy.push_back(next_mp1[1]);
+              ptsy.push_back(next_mp2[1]);
 
-  for (int i =0;i<ptsx.size();i++)
-  {
-     double shift_x = ptsx[i]-ref_x;
-     double shift_y = ptsy[i]-ref_y;
-     ptsx[i] = (shift_x*cos(0-ref_yaw)-shift_y*sin(0-ref_yaw));
-     ptsy[i] = (shift_x*sin(0-ref_yaw)+shift_y*cos(0-ref_yaw));
-  }
+              for (int i =0;i<ptsx.size();i++)
+              {
+                 double shift_x = ptsx[i]-ref_x;
+                 double shift_y = ptsy[i]-ref_y;
+                 ptsx[i] = (shift_x*cos(0-ref_yaw)-shift_y*sin(0-ref_yaw));
+                 ptsy[i] = (shift_x*sin(0-ref_yaw)+shift_y*cos(0-ref_yaw));
+              }
 
-  tk::spline s;
-  s.set_points(ptsx,ptsy);
-  
- // vector<double> next_x_vals;
-//  vector<double> next_y_vals;
+              tk::spline s;
+              s.set_points(ptsx,ptsy);
+              
+             // vector<double> next_x_vals;
+            //  vector<double> next_y_vals;
 
-  for (int i=0;i<previous_path_x.size();i++)
-  {
-     next_x_vals.push_back(previous_path_x[i]);
-     next_y_vals.push_back(previous_path_y[i]);
-  }
+              for (int i=0;i<previous_path_x.size();i++)
+              {
+                 next_x_vals.push_back(previous_path_x[i]);
+                 next_y_vals.push_back(previous_path_y[i]);
+              }
 
-  double target_x = 30.0;
-  double target_y = s(target_x);
-  double target_dist = sqrt((target_x)*(target_x)+(target_y)*(target_y));
+              double target_x = 30.0;
+              double target_y = s(target_x);
+              double target_dist = sqrt((target_x)*(target_x)+(target_y)*(target_y));
 
-  double x_add_on=0;
+              double x_add_on=0;
 
-  for (int i = 1;i<=50-previous_path_x.size();i++)
-  {
+              for (int i = 1;i<=50-previous_path_x.size();i++)
+              {
+                  
+                /* Based on a comment in the video, we adjust the speed at each iteration through the path
+                   creation. This way we can smoothly accelerate, but do it much more quickly than the video */
                 if (too_close)
                 {
                   ref_val-=0.224; 
@@ -429,94 +459,28 @@ else
                 {
                   ref_val+=0.224; 
                 }
-     double N = (target_dist/(0.02*ref_val/2.24));  // 2.24 to get to m/s from mph
-     double x_point = x_add_on+(target_x)/N;
-     double y_point = s(x_point);
+                 double N = (target_dist/(0.02*ref_val/2.24));  // 2.24 to get to m/s from mph
+                 double x_point = x_add_on+(target_x)/N;
+                 double y_point = s(x_point);
 
-     x_add_on = x_point;
-   
-     double x_ref = x_point;
-     double y_ref = y_point;
-    
-     x_point = (x_ref*cos(ref_yaw)-y_ref*sin(ref_yaw));
-     y_point = (x_ref*sin(ref_yaw)+y_ref*cos(ref_yaw));
+                 x_add_on = x_point;
+               
+                 double x_ref = x_point;
+                 double y_ref = y_point;
+                
+                 x_point = (x_ref*cos(ref_yaw)-y_ref*sin(ref_yaw));
+                 y_point = (x_ref*sin(ref_yaw)+y_ref*cos(ref_yaw));
 
-     x_point +=ref_x;
-     y_point +=ref_y;
+                 x_point +=ref_x;
+                 y_point +=ref_y;
 
-     next_x_vals.push_back(x_point);
-     next_y_vals.push_back(y_point);
+                 next_x_vals.push_back(x_point);
+                 next_y_vals.push_back(y_point);
 
-  }
-
-
-//std::cout << "next_x_vals size" << next_x_vals.size() << std::endl;
+              }
 
 
-#if 0
-  double dist_inc = 0.5;
-    for(int i = 0; i < 50; i++)
-    {
-       double next_s = car_s+(i+1)*dist_inc;
-       double next_d = 6;
-       vector<double> xy = getXY(next_s,next_d,map_waypoints_s, map_waypoints_x, map_waypoints_y);
-          next_x_vals.push_back(xy[0]);
-          next_y_vals.push_back(xy[1]);
-    }
-#endif
-#if 0
 
-
-  double dist_inc = 0.5;
-    for(int i = 0; i < 50; i++)
-    {
-          next_x_vals.push_back(car_x+(dist_inc*i)*cos(deg2rad(car_yaw)));
-          next_y_vals.push_back(car_y+(dist_inc*i)*sin(deg2rad(car_yaw)));
-    }
-
-#endif
-
-
-#if 0
-          double pos_x;
-          double pos_y;
-          double angle;
-          int path_size = previous_path_x.size();
-
-          for(int i = 0; i < path_size; i++)
-          {
-              next_x_vals.push_back(previous_path_x[i]);
-              next_y_vals.push_back(previous_path_y[i]);
-          }
-
-          if(path_size == 0)
-          {
-              pos_x = car_x;
-              pos_y = car_y;
-              angle = deg2rad(car_yaw);
-          }
-          else
-          {
-              pos_x = previous_path_x[path_size-1];
-              pos_y = previous_path_y[path_size-1];
-
-              double pos_x2 = previous_path_x[path_size-2];
-              double pos_y2 = previous_path_y[path_size-2];
-              angle = atan2(pos_y-pos_y2,pos_x-pos_x2);
-          }
-
-          double dist_inc = 0.5;
-          for(int i = 0; i < 50-path_size; i++)
-          {    
-              next_x_vals.push_back(pos_x+(dist_inc)*cos(angle+(i+1)*(pi()/100)));
-              next_y_vals.push_back(pos_y+(dist_inc)*sin(angle+(i+1)*(pi()/100)));
-              pos_x += (dist_inc)*cos(angle+(i+1)*(pi()/100));
-              pos_y += (dist_inc)*sin(angle+(i+1)*(pi()/100));
-          }
-
-#endif
-
-          	// TODO: define a path made up of (x,y) points that the car will visit sequentially every .02 seconds
           	msgJson["next_x"] = next_x_vals;
           	msgJson["next_y"] = next_y_vals;
 
